@@ -559,7 +559,16 @@ export class DockgeServer {
             fs.mkdirSync(this.stacksDir, { recursive: true });
         }
 
+        // Persist Docker registry credentials with Dockge data unless the operator
+        // already set DOCKER_CONFIG (e.g. to share the host's Docker login).
+        if (!process.env.DOCKER_CONFIG) {
+            const dockerConfigDir = path.join(this.config.dataDir, "docker");
+            fs.mkdirSync(dockerConfigDir, { recursive: true });
+            process.env.DOCKER_CONFIG = dockerConfigDir;
+        }
+
         log.info("server", `Data Dir: ${this.config.dataDir}`);
+        log.info("server", `Docker Config: ${process.env.DOCKER_CONFIG}`);
     }
 
     /**

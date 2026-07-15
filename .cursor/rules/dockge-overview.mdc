@@ -7,7 +7,7 @@ alwaysApply: true
 
 Self-hosted **Docker Compose stack manager** (Vue 3 + Express/Socket.IO). Upstream: [louislam/dockge](https://github.com/louislam/dockge). This workspace is a **fork** at `origin` → `ssh://git@ssh.git.ivonic.ch:30143/stalder-n/dockge.git` (branch `master`). Version `1.5.0`.
 
-Fork commits on top of upstream: npm audit/eslint fixes, v-html XSS hardening, Coder `.gitignore` for `.cursor/rules/coder_managed/`. Prefer recording further local divergence here when it lands.
+Fork commits on top of upstream: npm audit/eslint fixes, v-html XSS hardening, Coder `.gitignore` for `.cursor/rules/coder_managed/`, multi-registry Docker login (Settings → Registry; `DOCKER_CONFIG` under data dir). Prefer recording further local divergence here when it lands.
 
 ## Architecture
 

@@ -31,4 +31,4 @@ alwaysApply: false
 
 ## Agent socket events (via `agent`)
 
-`deployStack`, `saveStack`, `deleteStack`, `getStack`, `requestStackList`, `startStack`, `stopStack`, `restartStack`, `updateStack`, `downStack`, `serviceStatusList`, `dockerStats`, service start/stop/restart, terminals (`terminalInput`, `terminalJoin`, `interactiveTerminal`, …).
+`deployStack`, `saveStack`, `deleteStack`, `getStack`, `requestStackList`, `startStack`, `stopStack`, `restartStack`, `updateStack`, `downStack`, `serviceStatusList`, `dockerStats`, `getDockerRegistries`, `dockerLogin`, `dockerLogout`, service start/stop/restart, terminals (`terminalInput`, `terminalJoin`, `interactiveTerminal`, …).
