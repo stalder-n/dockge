@@ -1,0 +1,30 @@
+---
+description: Frontend Vue SPA patterns and key UI entry points
+globs: frontend/**/*.{ts,vue}
+alwaysApply: false
+---
+
+# Frontend
+
+Vue 3 Options API + Bootstrap 5 (`bootstrap-vue-next`). No Pinia/Vuex — shared state via root mixins.
+
+## Key files
+
+| File | Role |
+|------|------|
+| `frontend/src/main.ts` | Bootstrap; registers socket/lang/theme mixins |
+| `frontend/src/mixins/socket.ts` | Socket.IO client, login, stack/agent state |
+| `frontend/src/router.ts` | Routes: dashboard, compose, terminals, console, settings, setup |
+| `frontend/src/pages/Compose.vue` | Stack editor + deploy actions |
+| `frontend/src/pages/Dashboard*.vue` | Home shell / list |
+| `frontend/src/components/Terminal.vue` | xterm.js ↔ socket terminals |
+| `frontend/src/components/settings/*` | Appearance, General, Security, GlobalEnv, About |
+| `frontend/src/lang/*.json` | i18n (`$t("…")`); see `lang/README.md` |
+
+## Patterns
+
+- Talk to the backend via Socket.IO (and `agent(endpoint, …)` for stack ops), not REST.
+- Dev: Vite `:5000` talks to backend `:5001`. Prod: same-origin static from `frontend-dist/`.
+- Editor: CodeMirror 6 YAML. Keep UI consistent with existing Dockge look.
+- New user-facing strings: add keys to `en.json` and use `$t(...)`.
+- Prefer matching existing component/mixin style over introducing new state libraries.

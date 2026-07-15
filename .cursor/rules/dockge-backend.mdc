@@ -1,0 +1,34 @@
+---
+description: Backend Socket.IO handlers, Stack domain, and data patterns
+globs: backend/**/*.ts,common/**/*.ts
+alwaysApply: false
+---
+
+# Backend
+
+## Where logic lives
+
+| Concern | File |
+|---------|------|
+| Server boot, Express, Socket.IO, cron stack push | `backend/dockge-server.ts` |
+| Stack FS + compose lifecycle | `backend/stack.ts` |
+| PTY terminals | `backend/terminal.ts` |
+| Auth / settings / composerize | `backend/socket-handlers/main-socket-handler.ts` |
+| Agent routing (`agent` envelope) | `backend/socket-handlers/agent-proxy-socket-handler.ts` |
+| Add/remove/update agents | `backend/socket-handlers/manage-agent-socket-handler.ts` |
+| Deploy/start/stop/… stacks | `backend/agent-socket-handlers/docker-socket-handler.ts` |
+| Terminal join/input/resize | `backend/agent-socket-handlers/terminal-socket-handler.ts` |
+| Remote agent clients | `backend/agent-manager.ts` |
+| Status enums / compose names | `common/util-common.ts` |
+
+## Patterns
+
+- Extend `SocketHandler` (direct events) or `AgentSocketHandler` (via `agent` proxy). Do **not** invent REST endpoints for app logic.
+- Gate privileged events with `checkLogin(socket)`. Callbacks: `{ ok, msg, msgi18n?, … }` via `callbackResult` / `callbackError`.
+- Persist compose under `stacksDir/<name>/` (name: `/^[a-z0-9_-]+$/`). Never store stack YAML only in SQLite.
+- Stack status: `UNKNOWN=0`, `CREATED_FILE=1`, `CREATED_STACK=2`, `RUNNING=3`, `EXITED=4`.
+- Migrations: Knex TS under `backend/migrations/`. ORM: RedBean Node. MySQL is typed but unimplemented.
+
+## Agent socket events (via `agent`)
+
+`deployStack`, `saveStack`, `deleteStack`, `getStack`, `requestStackList`, `startStack`, `stopStack`, `restartStack`, `updateStack`, `downStack`, `serviceStatusList`, `dockerStats`, service start/stop/restart, terminals (`terminalInput`, `terminalJoin`, `interactiveTerminal`, …).
