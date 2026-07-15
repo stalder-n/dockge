@@ -10,3 +10,6 @@ tmp
 # Git only
 frontend-dist
 
+
+# Coder-managed Cursor rules (synced from workspace image; do not commit)
+.cursor/rules/coder_managed/
