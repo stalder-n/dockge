@@ -1,0 +1,37 @@
+---
+description: Always use fjo CLI for Forgejo (git.ivonic.ch) PRs, issues, and API work
+alwaysApply: true
+---
+
+# Forgejo: use `fjo`
+
+This repo’s `origin` is Forgejo at `git.ivonic.ch` (`stalder-n/dockge`), not GitHub.
+
+**Always use the `fjo` CLI** for Forgejo/Gitea tasks: pull requests, issues, reviews, labels, milestones, Actions runs, and Contents API.
+
+## Do / don’t
+
+- Do: `fjo pr create`, `fjo pr view`, `fjo pr list`, `fjo pr comment`, `fjo issue …`, etc.
+- Do: `fjo --agent-help` or `fjo <cmd> --help` when unsure of flags
+- Do: prefer `--json` when parsing output in scripts/agents
+- Don’t: `gh` (GitHub CLI) against this remote
+- Don’t: raw `curl` to `/api/v1/...` when `fjo` covers the operation
+- Don’t: invent a `tea`/`glab` workflow for this host
+
+Auth uses `FORGEJO_TOKEN` (or `fjo --token`); do not print tokens.
+
+## Examples
+
+```bash
+fjo pr create --base master --head cursor/my-branch --title "…" --body "$(cat <<'EOF'
+## Summary
+- …
+
+## Test plan
+- [ ] …
+EOF
+)"
+
+fjo pr view 1
+fjo pr list --json
+```
