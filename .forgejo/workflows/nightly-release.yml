@@ -1,0 +1,41 @@
+name: Nightly Release
+
+on:
+  schedule:
+    # Runs at 2:00 AM UTC every day
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  release-nightly:
+    runs-on: docker
+    timeout-minutes: 120
+
+    steps:
+      - uses: https://code.forgejo.org/actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up QEMU
+        uses: https://code.forgejo.org/docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: https://code.forgejo.org/docker/setup-buildx-action@v3
+
+      - name: Login to Forgejo Container Registry
+        uses: https://code.forgejo.org/docker/login-action@v3
+        with:
+          registry: git.ivonic.ch
+          username: ${{ github.actor }}
+          password: ${{ secrets.FORGEJO_PACKAGES_TOKEN }}
+
+      - name: Use Node.js 22
+        uses: https://code.forgejo.org/actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm clean-install --no-fund
+
+      - name: Run release-nightly
+        run: npm run release-nightly
