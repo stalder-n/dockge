@@ -2,23 +2,23 @@
 
 Fixed instructions for coding agents working in this repository.
 
-## Forgejo: always use `fjo`
+## GitHub: always use `gh`
 
-This repo’s `origin` is Forgejo at `git.ivonic.ch` (`stalder-n/dockge`), **not** GitHub.
+This repo’s `origin` is GitHub at `github.com/stalder-n/dockge` (fork of [louislam/dockge](https://github.com/louislam/dockge)).
 
-**Always use the `fjo` CLI** for Forgejo/Gitea work: pull requests, issues, reviews, labels, milestones, Actions runs, and the Contents API.
+**Always use the `gh` CLI** for GitHub work: pull requests, issues, reviews, labels, milestones, Actions runs, and the Contents API.
 
 | Do | Don’t |
 |---|---|
-| `fjo pr create` / `view` / `list` / `comment` / … | `gh` against this remote |
-| `fjo issue …`, `fjo run …`, etc. | Raw `curl` to `/api/v1/...` when `fjo` covers it |
-| `fjo --agent-help` or `fjo <cmd> --help` when unsure | `tea` / `glab` workflows for this host |
-| `--json` when parsing CLI output | Print `FORGEJO_TOKEN` / `--token` values |
+| `gh pr create` / `view` / `list` / `comment` / … | Raw `curl` to the API when `gh` covers it |
+| `gh issue …`, `gh run …`, etc. | Print `GH_TOKEN` / `GITHUB_TOKEN` values |
+| `gh help` or `gh <cmd> --help` when unsure | |
+| `--json` when parsing CLI output | |
 
-Auth: `FORGEJO_TOKEN` or `fjo --token`.
+Auth: `GH_TOKEN` / `GITHUB_TOKEN`, or `gh auth login`.
 
 ```bash
-fjo pr create --base master --head cursor/my-branch --title "…" --body "$(cat <<'EOF'
+gh pr create --base master --head cursor/my-branch --title "…" --body "$(cat <<'EOF'
 ## Summary
 - …
 
@@ -27,8 +27,8 @@ fjo pr create --base master --head cursor/my-branch --title "…" --body "$(cat 
 EOF
 )"
 
-fjo pr view 1
-fjo pr list --json
+gh pr view 1
+gh pr list --json number,title,url
 ```
 
-Also mirrored in [`.cursor/rules/use-fjo-cli.mdc`](.cursor/rules/use-fjo-cli.mdc).
+Also mirrored briefly in [`.cursor/rules/use-gh-cli.mdc`](.cursor/rules/use-gh-cli.mdc).

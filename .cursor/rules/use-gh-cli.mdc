@@ -1,0 +1,10 @@
+---
+description: Always use gh CLI for GitHub (stalder-n/dockge) PRs, issues, and API work
+alwaysApply: true
+---
+
+# GitHub: use `gh`
+
+This repo’s `origin` is `github.com/stalder-n/dockge`. Use the `gh` CLI for PRs, issues, reviews, Actions, and the GitHub API — not raw `curl` when `gh` covers it.
+
+Canonical details and examples: [AGENTS.md](../../AGENTS.md).

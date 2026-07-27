@@ -12,13 +12,13 @@ on:
 
 jobs:
   ci:
-    runs-on: node
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: https://code.forgejo.org/actions/checkout@v4
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: https://code.forgejo.org/actions/setup-node@v4
+        uses: actions/setup-node@v4
         with:
           node-version: 22
 
