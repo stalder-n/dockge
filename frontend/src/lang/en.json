@@ -22,6 +22,7 @@
     "addRegistry": "Add Registry",
     "noRegistriesLoggedIn": "No registries are logged in yet.",
     "dockerHub": "Docker Hub",
+    "agentRequestTimeout": "The agent did not respond. Registry management requires a newer Dockge agent.",
     "loading": "Loading...",
     "compose": "Compose",
     "addFirstStackMsg": "Compose your first stack!",

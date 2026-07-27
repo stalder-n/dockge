@@ -27,6 +27,10 @@
             {{ $t("loading") }}
         </div>
 
+        <div v-else-if="listError" class="mb-4 text-muted">
+            {{ $t("agentRequestTimeout") }}
+        </div>
+
         <div v-else-if="registries.length === 0" class="mb-4 text-muted">
             {{ $t("noRegistriesLoggedIn") }}
         </div>
@@ -145,6 +149,7 @@
 import { BModal } from "bootstrap-vue-next";
 
 const DOCKER_HUB_SERVER = "https://index.docker.io/v1/";
+const AGENT_REQUEST_TIMEOUT_MS = 10000;
 
 export default {
     name: "Registry",
@@ -161,6 +166,7 @@ export default {
             password: "",
             registries: [],
             loadingList: false,
+            listError: false,
             busy: false,
             showLogoutDialog: false,
             logoutServer: "",
@@ -181,13 +187,36 @@ export default {
     },
 
     methods: {
+        /** Wrap an agent callback so a timeout clears UI state if the agent never replies */
+        withAgentTimeout(onResponse, onTimeout) {
+            let settled = false;
+            const timer = setTimeout(() => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                onTimeout();
+            }, AGENT_REQUEST_TIMEOUT_MS);
+
+            return (res) => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                clearTimeout(timer);
+                onResponse(res);
+            };
+        },
+
         /** Load logged-in registries for the selected endpoint */
         loadRegistries() {
             const endpoint = this.endpoint;
             const requestId = ++this.listRequestId;
+            const isCurrent = () => requestId === this.listRequestId && endpoint === this.endpoint;
             this.loadingList = true;
-            this.$root.emitAgent(endpoint, "getDockerRegistries", (res) => {
-                if (requestId !== this.listRequestId || endpoint !== this.endpoint) {
+            this.listError = false;
+            this.$root.emitAgent(endpoint, "getDockerRegistries", this.withAgentTimeout((res) => {
+                if (!isCurrent()) {
                     return;
                 }
                 this.loadingList = false;
@@ -197,25 +226,39 @@ export default {
                     this.registries = [];
                     this.$root.toastRes(res);
                 }
-            });
+            }, () => {
+                if (!isCurrent()) {
+                    return;
+                }
+                this.loadingList = false;
+                this.registries = [];
+                this.listError = true;
+                this.$root.toastError("agentRequestTimeout");
+            }));
         },
 
         /** Submit registry credentials to the selected endpoint */
         login() {
             const endpoint = this.endpoint;
             this.busy = true;
-            this.$root.emitAgent(endpoint, "dockerLogin", this.registryServer, this.username, this.password, (res) => {
+            this.$root.emitAgent(endpoint, "dockerLogin", this.registryServer, this.username, this.password, this.withAgentTimeout((res) => {
+                this.busy = false;
                 if (endpoint !== this.endpoint) {
                     return;
                 }
-                this.busy = false;
                 this.$root.toastRes(res);
 
                 if (res.ok) {
                     this.password = "";
                     this.loadRegistries();
                 }
-            });
+            }, () => {
+                this.busy = false;
+                if (endpoint !== this.endpoint) {
+                    return;
+                }
+                this.$root.toastError("agentRequestTimeout");
+            }));
         },
 
         /** Open logout confirmation for a registry */
@@ -230,13 +273,16 @@ export default {
             const endpoint = this.logoutEndpoint;
             const server = this.logoutServer;
             this.busy = true;
-            this.$root.emitAgent(endpoint, "dockerLogout", server, (res) => {
+            this.$root.emitAgent(endpoint, "dockerLogout", server, this.withAgentTimeout((res) => {
                 this.busy = false;
                 this.$root.toastRes(res);
                 if (res.ok && endpoint === this.endpoint) {
                     this.loadRegistries();
                 }
-            });
+            }, () => {
+                this.busy = false;
+                this.$root.toastError("agentRequestTimeout");
+            }));
         },
     },
 };

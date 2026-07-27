@@ -25,6 +25,7 @@ import { Arguments, Config, DockgeSocket } from "./util-server";
 import { DockerSocketHandler } from "./agent-socket-handlers/docker-socket-handler";
 import expressStaticGzip from "express-static-gzip";
 import path from "path";
+import os from "os";
 import { TerminalSocketHandler } from "./agent-socket-handlers/terminal-socket-handler";
 import { Stack } from "./stack";
 import { Cron } from "croner";
@@ -564,6 +565,30 @@ export class DockgeServer {
         if (!process.env.DOCKER_CONFIG) {
             const dockerConfigDir = path.join(this.config.dataDir, "docker");
             fs.mkdirSync(dockerConfigDir, { recursive: true });
+            try {
+                fs.chmodSync(dockerConfigDir, 0o700);
+            } catch (e) {
+                log.warn("server", "Unable to set permissions on Docker config dir: " + e);
+            }
+
+            // Preserve credentials from the previous default (~/.docker, often a
+            // bind-mounted /root/.docker) when upgrading into the managed dir.
+            const managedConfigPath = path.join(dockerConfigDir, "config.json");
+            const legacyConfigPath = path.join(os.homedir(), ".docker", "config.json");
+            if (!fs.existsSync(managedConfigPath) && fs.existsSync(legacyConfigPath)) {
+                try {
+                    fs.copyFileSync(legacyConfigPath, managedConfigPath);
+                    try {
+                        fs.chmodSync(managedConfigPath, 0o600);
+                    } catch (e) {
+                        log.warn("server", "Unable to set permissions on Docker config.json: " + e);
+                    }
+                    log.info("server", `Migrated Docker config from ${legacyConfigPath} to ${managedConfigPath}`);
+                } catch (e) {
+                    log.warn("server", `Unable to migrate Docker config from ${legacyConfigPath}: ` + e);
+                }
+            }
+
             process.env.DOCKER_CONFIG = dockerConfigDir;
         }
 
