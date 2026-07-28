@@ -81,7 +81,7 @@
         "concurrently": "^10.0.4",
         "cross-env": "~7.0.3",
         "eslint": "~8.50.0",
-        "eslint-plugin-jsdoc": "~46.8.2",
+        "eslint-plugin-jsdoc": "~63.3.2",
         "eslint-plugin-vue": "~9.32.0",
         "sass": "^1.70.0",
         "thememirror": "^2.0.1",
