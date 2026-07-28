@@ -17,7 +17,7 @@ import {
     UNKNOWN
 } from "../common/util-common";
 import { InteractiveTerminal, Terminal } from "./terminal";
-import childProcessAsync from "promisify-child-process";
+import * as childProcessAsync from "promisify-child-process";
 import { Settings } from "./settings";
 
 export class Stack {

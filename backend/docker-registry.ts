@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import path from "path";
-import childProcessAsync from "promisify-child-process";
+import * as childProcessAsync from "promisify-child-process";
 
 /** Docker Hub's canonical auth key in config.json */
 const DOCKER_HUB_SERVER = "https://index.docker.io/v1/";
