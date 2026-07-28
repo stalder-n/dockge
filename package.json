@@ -93,7 +93,7 @@
         "vue": "~3.5.40",
         "vue-codemirror6": "^1.6.1",
         "vue-eslint-parser": "~9.3.2",
-        "vue-i18n": "~10.0.6",
+        "vue-i18n": "~11.4.8",
         "vue-qrcode": "~2.2.2",
         "vue-router": "~5.2.0",
         "vue-toastification": "2.0.0-rc.5",
