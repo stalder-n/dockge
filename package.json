@@ -54,7 +54,7 @@
         "timezones-list": "~3.1.0",
         "ts-command-line-args": "~2.5.1",
         "tsx": "~4.23.1",
-        "type-fest": "~4.3.3",
+        "type-fest": "~5.8.0",
         "yaml": "~2.9.0"
     },
     "devDependencies": {
