@@ -57,11 +57,12 @@ updates:
       # Human-driven majors only — prevents PR #2-style Vite 5→8 bundling
       - dependency-name: "vite"
         update-types: ["version-update:semver-major"]
-      - dependency-name: "@vitejs/plugin-vue"
+      - dependency-name: "@vitejs/*"
         update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
+    target-branch: master
     schedule:
       interval: monthly
     labels:
