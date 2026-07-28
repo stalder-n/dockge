@@ -109,9 +109,11 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./data:/app/data
-        
-      # If you want to use private registries, you need to share the auth file with Dockge:
-      # - /root/.docker/:/root/.docker
+
+      # Private registries: log in via Settings → Registry. Credentials are stored
+      # under ./data/docker (DOCKER_CONFIG). To reuse the host's Docker login instead:
+      # - /root/.docker:/root/.docker
+      # and set DOCKER_CONFIG=/root/.docker
 
       # Stacks Directory
       # Your stacks directory in the host (The paths inside container must be the same as the host)

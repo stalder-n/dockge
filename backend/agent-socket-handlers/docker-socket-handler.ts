@@ -3,6 +3,7 @@ import { DockgeServer } from "../dockge-server";
 import { callbackError, callbackResult, checkLogin, DockgeSocket, ValidationError } from "../util-server";
 import { Stack } from "../stack";
 import { AgentSocket } from "../../common/agent-socket";
+import { dockerLogin, dockerLogout, listRegistries } from "../docker-registry";
 
 export class DockerSocketHandler extends AgentSocketHandler {
     create(socket : DockgeSocket, server : DockgeServer, agentSocket : AgentSocket) {
@@ -326,6 +327,64 @@ export class DockerSocketHandler extends AgentSocketHandler {
                 callbackResult({
                     ok: true,
                     dockerNetworkList,
+                }, callback);
+            } catch (e) {
+                callbackError(e, callback);
+            }
+        });
+
+        agentSocket.on("getDockerRegistries", async (callback) => {
+            try {
+                checkLogin(socket);
+                callbackResult({
+                    ok: true,
+                    registries: listRegistries(),
+                }, callback);
+            } catch (e) {
+                callbackError(e, callback);
+            }
+        });
+
+        agentSocket.on("dockerLogin", async (registryServer : unknown, username : unknown, password : unknown, callback) => {
+            try {
+                checkLogin(socket);
+
+                if (typeof(registryServer) !== "string") {
+                    throw new ValidationError("Registry server must be a string");
+                }
+                if (typeof(username) !== "string" || username.trim() === "") {
+                    throw new ValidationError("Username is required");
+                }
+                if (typeof(password) !== "string" || password === "") {
+                    throw new ValidationError("Password is required");
+                }
+
+                await dockerLogin(registryServer, username.trim(), password);
+
+                callbackResult({
+                    ok: true,
+                    msg: "dockerRegistryLoginSuccess",
+                    msgi18n: true,
+                }, callback);
+            } catch (e) {
+                callbackError(e, callback);
+            }
+        });
+
+        agentSocket.on("dockerLogout", async (registryServer : unknown, callback) => {
+            try {
+                checkLogin(socket);
+
+                if (typeof(registryServer) !== "string") {
+                    throw new ValidationError("Registry server must be a string");
+                }
+
+                await dockerLogout(registryServer);
+
+                callbackResult({
+                    ok: true,
+                    msg: "dockerRegistryLogoutSuccess",
+                    msgi18n: true,
                 }, callback);
             } catch (e) {
                 callbackError(e, callback);
