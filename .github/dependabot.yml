@@ -1,0 +1,75 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    target-branch: master
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Zurich
+    open-pull-requests-limit: 8
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      production-non-major:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+      development-non-major:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+        exclude-patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "sass"
+          - "typescript"
+          - "eslint"
+          - "eslint-*"
+          - "@typescript-eslint/*"
+          - "vue-eslint-parser"
+      vite-stack:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "sass"
+        update-types:
+          - minor
+          - patch
+      eslint-typescript:
+        patterns:
+          - "typescript"
+          - "eslint"
+          - "eslint-*"
+          - "@typescript-eslint/*"
+          - "vue-eslint-parser"
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Human-driven majors only — prevents PR #2-style Vite 5→8 bundling
+      - dependency-name: "vite"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitejs/*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    target-branch: master
+    schedule:
+      interval: monthly
+    labels:
+      - dependencies
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
