@@ -149,7 +149,10 @@
 import { BModal } from "bootstrap-vue-next";
 
 const DOCKER_HUB_SERVER = "https://index.docker.io/v1/";
-const AGENT_REQUEST_TIMEOUT_MS = 10000;
+/** Short timeout: list fails fast when talking to older agents that lack the event. */
+const AGENT_LIST_TIMEOUT_MS = 10000;
+/** Login/logout can wait on a slow or remote registry. */
+const AGENT_AUTH_TIMEOUT_MS = 60000;
 
 export default {
     name: "Registry",
@@ -172,6 +175,7 @@ export default {
             logoutServer: "",
             logoutEndpoint: "",
             listRequestId: 0,
+            authRequestId: 0,
             dockerHubServer: DOCKER_HUB_SERVER,
         };
     },
@@ -187,22 +191,27 @@ export default {
     },
 
     methods: {
-        /** Wrap an agent callback so a timeout clears UI state if the agent never replies */
-        withAgentTimeout(onResponse, onTimeout) {
+        /** Wrap an agent callback; options: timeoutMs (default list), acceptLate for auth */
+        withAgentTimeout(onResponse, onTimeout, options = {}) {
+            const timeoutMs = options.timeoutMs ?? AGENT_LIST_TIMEOUT_MS;
+            const acceptLate = options.acceptLate === true;
             let settled = false;
+            let timedOut = false;
             const timer = setTimeout(() => {
                 if (settled) {
                     return;
                 }
                 settled = true;
+                timedOut = true;
                 onTimeout();
-            }, AGENT_REQUEST_TIMEOUT_MS);
+            }, timeoutMs);
 
             return (res) => {
-                if (settled) {
+                if (settled && !(acceptLate && timedOut)) {
                     return;
                 }
                 settled = true;
+                timedOut = false;
                 clearTimeout(timer);
                 onResponse(res);
             };
@@ -240,8 +249,13 @@ export default {
         /** Submit registry credentials to the selected endpoint */
         login() {
             const endpoint = this.endpoint;
+            const requestId = ++this.authRequestId;
+            const isCurrent = () => requestId === this.authRequestId;
             this.busy = true;
             this.$root.emitAgent(endpoint, "dockerLogin", this.registryServer, this.username, this.password, this.withAgentTimeout((res) => {
+                if (!isCurrent()) {
+                    return;
+                }
                 this.busy = false;
                 if (endpoint !== this.endpoint) {
                     return;
@@ -253,11 +267,17 @@ export default {
                     this.loadRegistries();
                 }
             }, () => {
+                if (!isCurrent()) {
+                    return;
+                }
                 this.busy = false;
                 if (endpoint !== this.endpoint) {
                     return;
                 }
                 this.$root.toastError("agentRequestTimeout");
+            }, {
+                timeoutMs: AGENT_AUTH_TIMEOUT_MS,
+                acceptLate: true,
             }));
         },
 
@@ -272,16 +292,27 @@ export default {
         logout() {
             const endpoint = this.logoutEndpoint;
             const server = this.logoutServer;
+            const requestId = ++this.authRequestId;
+            const isCurrent = () => requestId === this.authRequestId;
             this.busy = true;
             this.$root.emitAgent(endpoint, "dockerLogout", server, this.withAgentTimeout((res) => {
+                if (!isCurrent()) {
+                    return;
+                }
                 this.busy = false;
                 this.$root.toastRes(res);
                 if (res.ok && endpoint === this.endpoint) {
                     this.loadRegistries();
                 }
             }, () => {
+                if (!isCurrent()) {
+                    return;
+                }
                 this.busy = false;
                 this.$root.toastError("agentRequestTimeout");
+            }, {
+                timeoutMs: AGENT_AUTH_TIMEOUT_MS,
+                acceptLate: true,
             }));
         },
     },
