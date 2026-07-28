@@ -63,6 +63,22 @@ updates:
         update-types: ["version-update:semver-major"]
       # 0.x "minors" are effectively majors (e.g. 0.14 → 0.45); migrate manually
       - dependency-name: "bootstrap-vue-next"
+      # Migrate $tc → $t plurals before allowing vue-i18n 11+
+      - dependency-name: "vue-i18n"
+        update-types: ["version-update:semver-major"]
+      # Keep Font Awesome packages version-aligned; upgrade together manually
+      - dependency-name: "@fortawesome/fontawesome-svg-core"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@fortawesome/free-solid-svg-icons"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@fortawesome/vue-fontawesome"
+        update-types: ["version-update:semver-major"]
+      # Only used by unused upstream helper (extra/close-incorrect-issue.js)
+      - dependency-name: "@actions/github"
+        update-types: ["version-update:semver-major"]
+      # Prefer 3.1.x until we deliberately soak v4 shutdown behavior
+      - dependency-name: "http-graceful-shutdown"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
