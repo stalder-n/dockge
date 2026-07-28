@@ -58,7 +58,7 @@ I personally do not like something that requires so many configurations before y
 
 ## Tools
 
-- [`Node.js`](https://nodejs.org/) >= 22.14.0
+- [`Node.js`](https://nodejs.org/) >= 22.18.0
 - [`git`](https://git-scm.com/)
 - IDE that supports [`ESLint`](https://eslint.org/) and EditorConfig (I am using [`IntelliJ IDEA`](https://www.jetbrains.com/idea/))
 - A SQLite GUI tool (f.ex. [`SQLite Expert Personal`](https://www.sqliteexpert.com/download.html) or [`DBeaver Community`](https://dbeaver.io/download/))

@@ -28,11 +28,11 @@ Fork commits on top of upstream: npm audit/eslint fixes, v-html XSS hardening, C
 
 ## Dev / build
 
-- Node `>= 22.14.0`. `npm run dev` → Vite `:5000` + backend `:5001`.
+- Node `>= 22.18.0`. `npm run dev` → Vite `:5000` + backend `:5001`.
 - Prod: `npm run build:frontend` then `npm start` / Docker `tsx ./backend/index.ts`.
 - Quality: `npm run lint`, `check-ts`. No unit test suite; CI = lint + tsc + frontend build (`.github/workflows/ci.yml`).
 - Images: no automated nightly on GitHub; rebuild/push manually as needed.
-- Forgejo (`git.ivonic.ch/stalder-n/dockge`): Forgejo-only `.forgejo/workflows/sync-latest.yml` on Forgejo `master` (not on GitHub). Manual Actions run resets Forgejo `master` to `github.com/stalder-n/dockge` while preserving `.forgejo/`, then pushes `git.ivonic.ch/stalder-n/dockge:latest`. Requires secrets `SYNC_GIT_TOKEN` + `REGISTRY_TOKEN`.
+- Forgejo (`git.ivonic.ch/stalder-n/dockge`): Forgejo-only `.forgejo/workflows/sync-latest.yml` on Forgejo `master` (not on GitHub). Manual Actions run resets Forgejo `master` to `github.com/stalder-n/dockge` while preserving `.forgejo/`, then builds with musl Node `22.23.1` and pushes `git.ivonic.ch/stalder-n/dockge:latest`. Requires secrets `SYNC_GIT_TOKEN` + `REGISTRY_TOKEN`.
 - BE deps in `dependencies`, FE in `devDependencies` (Docker `npm ci --omit=dev`).
 
 ## Conventions (from CONTRIBUTING)
