@@ -37,7 +37,7 @@
         "composerize": "~1.7.6",
         "croner": "~8.1.2",
         "dayjs": "~1.11.21",
-        "dotenv": "~16.3.2",
+        "dotenv": "~17.4.2",
         "express": "~4.22.2",
         "express-static-gzip": "~2.1.8",
         "http-graceful-shutdown": "~3.1.14",
