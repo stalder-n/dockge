@@ -58,6 +58,8 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "@vitejs/*"
         update-types: ["version-update:semver-major"]
+      # 0.x "minors" are effectively majors (e.g. 0.14 → 0.45); migrate manually
+      - dependency-name: "bootstrap-vue-next"
 
   - package-ecosystem: github-actions
     directory: "/"
