@@ -43,7 +43,7 @@
         "http-graceful-shutdown": "~3.1.16",
         "jsonwebtoken": "~9.0.3",
         "jwt-decode": "~4.0.0",
-        "knex": "~2.5.1",
+        "knex": "~3.3.0",
         "limiter-es6-compat": "~2.1.2",
         "mysql2": "~3.23.2",
         "promisify-child-process": "~5.0.1",
