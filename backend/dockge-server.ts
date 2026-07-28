@@ -397,7 +397,7 @@ export class DockgeServer {
             }
 
             // Run every 10 seconds
-            Cron("*/10 * * * * *", {
+            new Cron("*/10 * * * * *", {
                 protect: true,  // Enabled over-run protection.
             }, () => {
                 //log.debug("server", "Cron job running");
