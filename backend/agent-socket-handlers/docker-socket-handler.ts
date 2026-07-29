@@ -232,7 +232,7 @@ export class DockerSocketHandler extends AgentSocketHandler {
                 if (typeof stackName === "string" && stackName !== "") {
                     await imageUpdateChecker.checkOneStack(stackName);
                 } else {
-                    await imageUpdateChecker.checkAllStacks();
+                    await imageUpdateChecker.checkAllStacks(true);
                 }
 
                 server.sendStackList();
