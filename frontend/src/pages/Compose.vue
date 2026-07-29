@@ -9,6 +9,15 @@
                 </span>
             </h1>
 
+            <div
+                v-if="!isAdd && !isEditMode && stack.isManagedByDockge && globalStack?.updateAvailable"
+                class="alert alert-info mb-3"
+                role="alert"
+            >
+                <font-awesome-icon icon="cloud-arrow-down" class="me-2" />
+                {{ $t("stackUpdateAvailableServices", [ updateServicesList.join(", ") ]) }}
+            </div>
+
             <div v-if="stack.isManagedByDockge" class="mb-3">
                 <div class="btn-group me-2" role="group">
                     <button v-if="isEditMode" class="btn btn-primary" :disabled="processing" @click="deployStack">
@@ -39,6 +48,10 @@
                     <button v-if="!isEditMode" class="btn btn-normal" :disabled="processing" @click="updateStack">
                         <font-awesome-icon icon="cloud-arrow-down" class="me-1" />
                         {{ $t("updateStack") }}
+                    </button>
+
+                    <button v-if="!isEditMode" class="btn btn-normal" :disabled="processing || checkingUpdates" :title="$t('checkStackUpdates')" @click="checkStackUpdates">
+                        <font-awesome-icon icon="arrows-rotate" :class="{ 'fa-spin': checkingUpdates }" />
                     </button>
 
                     <button v-if="!isEditMode && active" class="btn btn-normal" :disabled="processing" @click="stopStack">
@@ -130,6 +143,7 @@
                             :first="name === Object.keys(jsonConfig.services)[0]"
                             :serviceStatus="serviceStatusList[name]"
                             :dockerStats="dockerStats"
+                            :update-services="updateServicesList"
                             @start-service="startService"
                             @stop-service="stopService"
                             @restart-service="restartService"
@@ -344,11 +358,17 @@ export default {
             newContainerName: "",
             stopServiceStatusTimeout: false,
             stopDockerStatsTimeout: false,
+            checkingUpdates: false,
         };
     },
     computed: {
         endpointDisplay() {
             return this.$root.endpointDisplayFunction(this.endpoint);
+        },
+
+        updateServicesList() {
+            const list = this.globalStack?.updateServices;
+            return Array.isArray(list) ? list : [];
         },
 
         urls() {
@@ -699,6 +719,18 @@ export default {
 
             this.$root.emitAgent(this.endpoint, "updateStack", this.stack.name, (res) => {
                 this.processing = false;
+                this.$root.toastRes(res);
+            });
+        },
+
+        /**
+         * Re-check digests for this stack without pulling
+         * @returns {void}
+         */
+        checkStackUpdates() {
+            this.checkingUpdates = true;
+            this.$root.emitAgent(this.endpoint, "checkStackUpdates", this.stack.name, (res) => {
+                this.checkingUpdates = false;
                 this.$root.toastRes(res);
             });
         },

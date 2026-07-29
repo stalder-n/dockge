@@ -57,6 +57,37 @@
                 <div class="form-text"></div>
             </div>
 
+            <!-- Image update checking -->
+            <div class="mb-4">
+                <h5 class="mb-3">{{ $t("imageUpdateChecking") }}</h5>
+                <div class="form-check mb-2">
+                    <input
+                        id="imageUpdateCheckEnabled"
+                        v-model="settings.imageUpdateCheckEnabled"
+                        class="form-check-input"
+                        type="checkbox"
+                    />
+                    <label class="form-check-label" for="imageUpdateCheckEnabled">
+                        {{ $t("imageUpdateCheckEnabled") }}
+                    </label>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label" for="imageUpdateCheckIntervalHours">
+                        {{ $t("imageUpdateCheckIntervalHours") }}
+                    </label>
+                    <input
+                        id="imageUpdateCheckIntervalHours"
+                        v-model.number="settings.imageUpdateCheckIntervalHours"
+                        class="form-control"
+                        type="number"
+                        min="1"
+                        max="168"
+                        :disabled="settings.imageUpdateCheckEnabled === false"
+                    />
+                    <div class="form-text">{{ $t("imageUpdateCheckIntervalHoursHelp") }}</div>
+                </div>
+            </div>
+
             <!-- Save Button -->
             <div>
                 <button class="btn btn-primary" type="submit">

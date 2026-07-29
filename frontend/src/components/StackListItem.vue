@@ -3,16 +3,24 @@
         <Uptime :stack="stack" :fixed-width="true" class="me-2" />
         <div class="title">
             <span>{{ stackName }}</span>
+            <font-awesome-icon
+                v-if="stack.updateAvailable"
+                icon="cloud-arrow-down"
+                class="update-icon ms-2"
+                :title="$t('updateAvailable')"
+            />
         </div>
     </router-link>
 </template>
 
 <script>
 import Uptime from "./Uptime.vue";
+import { FontAwesomeIcon } from "@fortawesome/vue-fontawesome";
 
 export default {
     components: {
-        Uptime
+        Uptime,
+        FontAwesomeIcon,
     },
     props: {
         /** Stack this represents */
@@ -148,6 +156,14 @@ export default {
     }
     .title {
         margin-top: -4px;
+        display: flex;
+        align-items: center;
+        min-width: 0;
+    }
+    .update-icon {
+        color: #0d6efd;
+        flex-shrink: 0;
+        font-size: 0.85em;
     }
     .endpoint {
         font-size: 12px;

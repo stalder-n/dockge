@@ -20,6 +20,7 @@ import jwt from "jsonwebtoken";
 import { Settings } from "../settings";
 import fs, { promises as fsAsync } from "fs";
 import path from "path";
+import imageUpdateChecker from "../image-update-checker";
 
 export class MainSocketHandler extends SocketHandler {
     create(socket : DockgeSocket, server : DockgeServer) {
@@ -279,9 +280,15 @@ export class MainSocketHandler extends SocketHandler {
                     await doubleCheckPassword(socket, currentPassword);
                 }
                 // Handle global.env
+                const previousGlobalENV = fs.existsSync(path.join(server.stacksDir, "global.env"))
+                    ? fs.readFileSync(path.join(server.stacksDir, "global.env"), "utf-8")
+                    : null;
+                let globalENVChanged = false;
                 if (data.globalENV && data.globalENV != "# VARIABLE=value #comment") {
+                    globalENVChanged = previousGlobalENV !== data.globalENV;
                     await fsAsync.writeFile(path.join(server.stacksDir, "global.env"), data.globalENV);
                 } else {
+                    globalENVChanged = previousGlobalENV !== null;
                     await fsAsync.rm(path.join(server.stacksDir, "global.env"), {
                         recursive: true,
                         force: true
@@ -297,6 +304,12 @@ export class MainSocketHandler extends SocketHandler {
                 });
 
                 server.sendInfo(socket);
+                void imageUpdateChecker.reschedule();
+                if (globalENVChanged) {
+                    void imageUpdateChecker.checkAllStacks()
+                        .then(() => server.sendStackList())
+                        .catch((e) => log.warn("image-update", e instanceof Error ? e.message : e));
+                }
 
             } catch (e) {
                 if (e instanceof Error) {

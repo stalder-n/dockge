@@ -126,6 +126,12 @@ export default {
                 if (this.settings.checkUpdate === undefined) {
                     this.settings.checkUpdate = true;
                 }
+                if (this.settings.imageUpdateCheckEnabled === undefined) {
+                    this.settings.imageUpdateCheckEnabled = true;
+                }
+                if (this.settings.imageUpdateCheckIntervalHours === undefined) {
+                    this.settings.imageUpdateCheckIntervalHours = 6;
+                }
                 this.settingsLoaded = true;
             });
         },
@@ -166,6 +172,13 @@ export default {
                 return {
                     success: false,
                     msg: this.$t("dataRetentionTimeError"),
+                };
+            }
+            const hours = this.settings.imageUpdateCheckIntervalHours;
+            if (hours !== undefined && hours !== null && (!Number.isFinite(hours) || hours < 1 || hours > 168)) {
+                return {
+                    success: false,
+                    msg: this.$t("imageUpdateCheckIntervalHoursError"),
                 };
             }
             return {

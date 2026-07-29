@@ -5,6 +5,7 @@
                 <h4>{{ name }}</h4>
                 <div class="image mb-2">
                     <span class="me-1">{{ imageName }}:</span><span class="tag">{{ imageTag }}</span>
+                    <span v-if="hasUpdate" class="badge bg-info ms-2">{{ $t("updateAvailable") }}</span>
                 </div>
                 <div v-if="!isEditMode">
                     <span class="badge me-1" :class="bgStyle">{{ status }}</span>
@@ -220,7 +221,11 @@ export default defineComponent({
         dockerStats: {
             type: Object,
             default: null
-        }
+        },
+        updateServices: {
+            type: Array,
+            default: () => [],
+        },
     },
     emits: [
         "start-service",
@@ -334,6 +339,9 @@ export default defineComponent({
             } else {
                 return "";
             }
+        },
+        hasUpdate() {
+            return Array.isArray(this.updateServices) && this.updateServices.includes(this.name);
         },
         statsInstances() {
             if (!this.serviceStatus) {
