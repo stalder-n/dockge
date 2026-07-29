@@ -4,6 +4,23 @@ import { callbackError, callbackResult, checkLogin, DockgeSocket, ValidationErro
 import { Stack } from "../stack";
 import { AgentSocket } from "../../common/agent-socket";
 import { dockerLogin, dockerLogout, listRegistries } from "../docker-registry";
+import imageUpdateChecker from "../image-update-checker";
+import { log } from "../log";
+
+/**
+ * Recheck image digests for a stack after compose changes; refresh clients when done.
+ * @param server Dockge server
+ * @param stackName Stack name
+ * @returns void
+ */
+function queueStackImageRecheck(server : DockgeServer, stackName : string) {
+    void imageUpdateChecker.checkOneStack(stackName)
+        .then(() => server.sendStackList())
+        .catch((e) => {
+            log.warn("image-update", e instanceof Error ? e.message : e);
+            void server.sendStackList();
+        });
+}
 
 export class DockerSocketHandler extends AgentSocketHandler {
     create(socket : DockgeSocket, server : DockgeServer, agentSocket : AgentSocket) {
@@ -14,6 +31,7 @@ export class DockerSocketHandler extends AgentSocketHandler {
                 checkLogin(socket);
                 const stack = await this.saveStack(server, name, composeYAML, composeENV, isAdd);
                 await stack.deploy(socket);
+                queueStackImageRecheck(server, stack.name);
                 server.sendStackList();
                 callbackResult({
                     ok: true,
@@ -29,7 +47,8 @@ export class DockerSocketHandler extends AgentSocketHandler {
         agentSocket.on("saveStack", async (name : unknown, composeYAML : unknown, composeENV : unknown, isAdd : unknown, callback) => {
             try {
                 checkLogin(socket);
-                await this.saveStack(server, name, composeYAML, composeENV, isAdd);
+                const stack = await this.saveStack(server, name, composeYAML, composeENV, isAdd);
+                queueStackImageRecheck(server, stack.name);
                 callbackResult({
                     ok: true,
                     msg: "Saved",
@@ -56,6 +75,7 @@ export class DockerSocketHandler extends AgentSocketHandler {
                     throw e;
                 }
 
+                imageUpdateChecker.invalidate(name);
                 server.sendStackList();
                 callbackResult({
                     ok: true,
@@ -188,12 +208,39 @@ export class DockerSocketHandler extends AgentSocketHandler {
 
                 const stack = await Stack.getStack(server, stackName);
                 await stack.update(socket);
+                queueStackImageRecheck(server, stackName);
                 callbackResult({
                     ok: true,
                     msg: "Updated",
                     msgi18n: true,
                 }, callback);
                 server.sendStackList();
+            } catch (e) {
+                callbackError(e, callback);
+            }
+        });
+
+        // checkStackUpdates — digest-based update indication (optional single stack)
+        agentSocket.on("checkStackUpdates", async (stackName : unknown, callback) => {
+            try {
+                checkLogin(socket);
+
+                if (stackName !== undefined && stackName !== null && typeof(stackName) !== "string") {
+                    throw new ValidationError("Stack name must be a string");
+                }
+
+                if (typeof stackName === "string" && stackName !== "") {
+                    await imageUpdateChecker.checkOneStack(stackName);
+                } else {
+                    await imageUpdateChecker.checkAllStacks();
+                }
+
+                server.sendStackList();
+                callbackResult({
+                    ok: true,
+                    msg: "stackUpdateCheckComplete",
+                    msgi18n: true,
+                }, callback);
             } catch (e) {
                 callbackError(e, callback);
             }
