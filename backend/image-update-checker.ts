@@ -151,6 +151,7 @@ export class ImageUpdateChecker {
     private cache = new Map<string, StackUpdateCacheEntry>();
     private checking = false;
     private timer: NodeJS.Timeout | null = null;
+    private initialTimer: NodeJS.Timeout | null = null;
     private remoteDigestCache = new Map<string, { digest: string; expires: number }>();
 
     /**
@@ -161,7 +162,8 @@ export class ImageUpdateChecker {
         this.server = server;
         void this.reschedule();
         // Initial scan shortly after boot so the UI is not empty
-        setTimeout(async () => {
+        this.initialTimer = setTimeout(async () => {
+            this.initialTimer = null;
             if (!(await this.isEnabled())) {
                 return;
             }
@@ -171,9 +173,13 @@ export class ImageUpdateChecker {
     }
 
     /**
-     * Stop the polling timer (shutdown).
+     * Stop timers (shutdown).
      */
     stop() {
+        if (this.initialTimer) {
+            clearTimeout(this.initialTimer);
+            this.initialTimer = null;
+        }
         if (this.timer) {
             clearTimeout(this.timer);
             this.timer = null;
@@ -275,10 +281,15 @@ export class ImageUpdateChecker {
 
     /**
      * Scan every managed stack.
+     * @param forceRefresh When true, clear the remote digest cache before scanning (manual / post-op checks)
      */
-    async checkAllStacks() {
+    async checkAllStacks(forceRefresh = false) {
         if (!this.server || this.checking) {
             return;
+        }
+
+        if (forceRefresh) {
+            this.remoteDigestCache.clear();
         }
 
         this.checking = true;
@@ -310,13 +321,15 @@ export class ImageUpdateChecker {
     }
 
     /**
-     * Check a single stack by name.
+     * Check a single stack by name (clears remote digest cache for a fresh fetch).
      * @param stackName Stack name
      */
     async checkOneStack(stackName: string) {
         if (!this.server) {
             return;
         }
+
+        this.remoteDigestCache.clear();
 
         this.cache.set(stackName, {
             updateAvailable: false,
