@@ -174,13 +174,11 @@ export default {
                     msg: this.$t("dataRetentionTimeError"),
                 };
             }
-            const hours = this.settings.imageUpdateCheckIntervalHours;
-            if (hours !== undefined && hours !== null && (!Number.isFinite(hours) || hours < 1 || hours > 168)) {
-                return {
-                    success: false,
-                    msg: this.$t("imageUpdateCheckIntervalHoursError"),
-                };
-            }
+            const hours = Number(this.settings.imageUpdateCheckIntervalHours);
+            this.settings.imageUpdateCheckIntervalHours = Math.min(
+                168,
+                Math.max(1, Number.isFinite(hours) ? hours : 6),
+            );
             return {
                 success: true,
                 msg: "",
