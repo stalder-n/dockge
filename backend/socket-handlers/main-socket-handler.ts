@@ -306,9 +306,17 @@ export class MainSocketHandler extends SocketHandler {
                 server.sendInfo(socket);
                 void imageUpdateChecker.reschedule();
                 if (globalENVChanged) {
-                    void imageUpdateChecker.checkAllStacks(true)
-                        .then(() => server.sendStackList())
-                        .catch((e) => log.warn("image-update", e instanceof Error ? e.message : e));
+                    void (async () => {
+                        if (!(await imageUpdateChecker.isEnabled())) {
+                            return;
+                        }
+                        try {
+                            await imageUpdateChecker.checkAllStacks(true);
+                            await server.sendStackList();
+                        } catch (e) {
+                            log.warn("image-update", e instanceof Error ? e.message : e);
+                        }
+                    })();
                 }
 
             } catch (e) {

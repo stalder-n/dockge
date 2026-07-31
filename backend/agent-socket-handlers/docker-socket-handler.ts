@@ -9,17 +9,23 @@ import { log } from "../log";
 
 /**
  * Recheck image digests for a stack after compose changes; refresh clients when done.
+ * No-ops when automatic image-update checking is disabled.
  * @param server Dockge server
  * @param stackName Stack name
  * @returns void
  */
 function queueStackImageRecheck(server : DockgeServer, stackName : string) {
-    void imageUpdateChecker.checkOneStack(stackName)
-        .then(() => server.sendStackList())
-        .catch((e) => {
+    void (async () => {
+        if (!(await imageUpdateChecker.isEnabled())) {
+            return;
+        }
+        try {
+            await imageUpdateChecker.checkOneStack(stackName);
+        } catch (e) {
             log.warn("image-update", e instanceof Error ? e.message : e);
-            void server.sendStackList();
-        });
+        }
+        await server.sendStackList();
+    })();
 }
 
 export class DockerSocketHandler extends AgentSocketHandler {
