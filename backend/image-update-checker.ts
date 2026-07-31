@@ -150,9 +150,12 @@ export class ImageUpdateChecker {
     private server: DockgeServer | null = null;
     private cache = new Map<string, StackUpdateCacheEntry>();
     private checking = false;
+    private pendingForceRefresh = false;
     private timer: NodeJS.Timeout | null = null;
     private initialTimer: NodeJS.Timeout | null = null;
     private remoteDigestCache = new Map<string, { digest: string; expires: number }>();
+    /** Bumped when a stack check starts; stale concurrent writers skip cache commits. */
+    private stackCheckGeneration = new Map<string, number>();
 
     /**
      * Bind to the running server and start the polling loop.
@@ -276,7 +279,32 @@ export class ImageUpdateChecker {
      */
     invalidate(stackName: string) {
         this.cache.delete(stackName);
+        this.beginStackCheck(stackName);
         log.debug("image-update", `Invalidated cache for stack ${stackName}`);
+    }
+
+    /**
+     * Bump the per-stack check generation so older in-flight writers discard their result.
+     * @param stackName Stack name
+     * @returns New generation for this check
+     */
+    private beginStackCheck(stackName: string): number {
+        const gen = (this.stackCheckGeneration.get(stackName) ?? 0) + 1;
+        this.stackCheckGeneration.set(stackName, gen);
+        return gen;
+    }
+
+    /**
+     * Write a stack cache entry only if this check is still the latest for the stack.
+     * @param stackName Stack name
+     * @param gen Generation captured at check start
+     * @param entry Cache entry
+     */
+    private commitStackCache(stackName: string, gen: number, entry: StackUpdateCacheEntry) {
+        if (this.stackCheckGeneration.get(stackName) !== gen) {
+            return;
+        }
+        this.cache.set(stackName, entry);
     }
 
     /**
@@ -284,40 +312,42 @@ export class ImageUpdateChecker {
      * @param forceRefresh When true, clear the remote digest cache before scanning (manual / post-op checks)
      */
     async checkAllStacks(forceRefresh = false) {
-        if (!this.server || this.checking) {
+        if (!this.server) {
             return;
         }
 
-        if (forceRefresh) {
-            this.remoteDigestCache.clear();
+        if (this.checking) {
+            if (forceRefresh) {
+                this.pendingForceRefresh = true;
+            }
+            return;
         }
 
-        this.checking = true;
-        log.info("image-update", "Checking stacks for image updates");
+        let force = forceRefresh;
+        do {
+            if (force) {
+                this.remoteDigestCache.clear();
+            }
 
-        try {
-            const stackList = await Stack.getStackList(this.server, false);
-            const managed = [ ...stackList.values() ].filter((s) => s.isManagedByDockge);
+            this.checking = true;
+            log.info("image-update", "Checking stacks for image updates");
 
-            await mapPool(managed, 2, async (stack) => {
-                try {
+            try {
+                const stackList = await Stack.getStackList(this.server, false);
+                const managed = [ ...stackList.values() ].filter((s) => s.isManagedByDockge);
+
+                await mapPool(managed, 2, async (stack) => {
                     await this.checkStackInstance(stack);
-                } catch (e) {
-                    log.warn("image-update", `Failed checking stack ${stack.name}: ${e instanceof Error ? e.message : e}`);
-                    this.cache.set(stack.name, {
-                        updateAvailable: false,
-                        updateCheckStatus: "error",
-                        updateServices: [],
-                        services: [],
-                        checkedAt: Date.now(),
-                    });
-                }
-            });
+                });
 
-            log.info("image-update", `Finished checking ${managed.length} stacks`);
-        } finally {
-            this.checking = false;
-        }
+                log.info("image-update", `Finished checking ${managed.length} stacks`);
+            } finally {
+                this.checking = false;
+            }
+
+            force = this.pendingForceRefresh;
+            this.pendingForceRefresh = false;
+        } while (force);
     }
 
     /**
@@ -331,7 +361,8 @@ export class ImageUpdateChecker {
 
         this.remoteDigestCache.clear();
 
-        this.cache.set(stackName, {
+        const gen = this.beginStackCheck(stackName);
+        this.commitStackCache(stackName, gen, {
             updateAvailable: false,
             updateCheckStatus: "pending",
             updateServices: [],
@@ -341,10 +372,10 @@ export class ImageUpdateChecker {
 
         try {
             const stack = await Stack.getStack(this.server, stackName);
-            await this.checkStackInstance(stack);
+            await this.checkStackInstance(stack, gen);
         } catch (e) {
             log.warn("image-update", `Failed checking stack ${stackName}: ${e instanceof Error ? e.message : e}`);
-            this.cache.set(stackName, {
+            this.commitStackCache(stackName, gen, {
                 updateAvailable: false,
                 updateCheckStatus: "error",
                 updateServices: [],
@@ -356,51 +387,72 @@ export class ImageUpdateChecker {
 
     /**
      * Inspect one stack's compose images and compare digests.
-     * @param stack Stack instance
+     * @param stack Stack instance (may be a list snapshot; re-fetched unless `existingGen` is set)
+     * @param existingGen Optional generation from an outer caller (e.g. pending check with a fresh Stack)
      */
-    private async checkStackInstance(stack: Stack) {
-        if (!stack.isManagedByDockge) {
-            this.cache.set(stack.name, {
+    private async checkStackInstance(stack: Stack, existingGen?: number) {
+        const gen = existingGen ?? this.beginStackCheck(stack.name);
+
+        try {
+            // Bulk scans pass list snapshots; re-load so a concurrent post-op check is not
+            // overwritten by stale compose/image state from the start of the full scan.
+            let current = stack;
+            if (existingGen === undefined && this.server) {
+                current = await Stack.getStack(this.server, stack.name);
+            }
+
+            if (!current.isManagedByDockge) {
+                this.commitStackCache(current.name, gen, {
+                    updateAvailable: false,
+                    updateCheckStatus: "ok",
+                    updateServices: [],
+                    services: [],
+                    checkedAt: Date.now(),
+                });
+                return;
+            }
+
+            const services = this.collectServiceImages(current);
+            if (services.length === 0) {
+                this.commitStackCache(current.name, gen, {
+                    updateAvailable: false,
+                    updateCheckStatus: "ok",
+                    updateServices: [],
+                    services: [],
+                    checkedAt: Date.now(),
+                });
+                return;
+            }
+
+            const results = await mapPool(services, CHECK_CONCURRENCY, async (svc) => {
+                return await this.checkServiceImage(svc.name, svc.image);
+            });
+
+            const updateServices = results.filter((r) => r.status === "update-available").map((r) => r.name);
+            let updateCheckStatus: StackUpdateCheckStatus = "ok";
+            if (results.some((r) => r.status === "error")) {
+                updateCheckStatus = "error";
+            } else if (results.some((r) => r.status === "unknown")) {
+                updateCheckStatus = "unknown";
+            }
+
+            this.commitStackCache(current.name, gen, {
+                updateAvailable: updateServices.length > 0,
+                updateCheckStatus,
+                updateServices,
+                services: results,
+                checkedAt: Date.now(),
+            });
+        } catch (e) {
+            log.warn("image-update", `Failed checking stack ${stack.name}: ${e instanceof Error ? e.message : e}`);
+            this.commitStackCache(stack.name, gen, {
                 updateAvailable: false,
-                updateCheckStatus: "ok",
+                updateCheckStatus: "error",
                 updateServices: [],
                 services: [],
                 checkedAt: Date.now(),
             });
-            return;
         }
-
-        const services = this.collectServiceImages(stack);
-        if (services.length === 0) {
-            this.cache.set(stack.name, {
-                updateAvailable: false,
-                updateCheckStatus: "ok",
-                updateServices: [],
-                services: [],
-                checkedAt: Date.now(),
-            });
-            return;
-        }
-
-        const results = await mapPool(services, CHECK_CONCURRENCY, async (svc) => {
-            return await this.checkServiceImage(svc.name, svc.image);
-        });
-
-        const updateServices = results.filter((r) => r.status === "update-available").map((r) => r.name);
-        let updateCheckStatus: StackUpdateCheckStatus = "ok";
-        if (results.some((r) => r.status === "error")) {
-            updateCheckStatus = "error";
-        } else if (results.some((r) => r.status === "unknown")) {
-            updateCheckStatus = "unknown";
-        }
-
-        this.cache.set(stack.name, {
-            updateAvailable: updateServices.length > 0,
-            updateCheckStatus,
-            updateServices,
-            services: results,
-            checkedAt: Date.now(),
-        });
     }
 
     /**
@@ -618,23 +670,13 @@ export class ImageUpdateChecker {
                 headers.Authorization = `Basic ${basicAuth}`;
             }
 
-            let response = await this.httpsRequest(`https://${registryHost}${manifestPath}`, "HEAD", headers);
-
-            if (response.statusCode === 401 || response.statusCode === 403) {
-                const wwwAuth = response.headers["www-authenticate"];
-                const token = await this.fetchRegistryToken(wwwAuth, parsed.repository, basicAuth);
-                if (token) {
-                    headers = {
-                        Accept: accept,
-                        Authorization: `Bearer ${token}`,
-                    };
-                    response = await this.httpsRequest(`https://${registryHost}${manifestPath}`, "HEAD", headers);
-                }
-            }
+            const manifestUrl = `https://${registryHost}${manifestPath}`;
+            let response = await this.requestManifest(manifestUrl, "HEAD", headers, accept, parsed.repository, basicAuth);
+            headers = response.headersOut;
 
             if (response.statusCode !== 200) {
-                // Some registries reject HEAD; retry GET
-                response = await this.httpsRequest(`https://${registryHost}${manifestPath}`, "GET", headers);
+                // Some registries reject HEAD; retry GET (and auth if the GET challenges)
+                response = await this.requestManifest(manifestUrl, "GET", headers, accept, parsed.repository, basicAuth);
             }
 
             if (response.statusCode !== 200) {
@@ -655,6 +697,50 @@ export class ImageUpdateChecker {
             log.debug("image-update", `Registry HTTP failed for ${parsed.reference}: ${e instanceof Error ? e.message : e}`);
             return null;
         }
+    }
+
+    /**
+     * Manifest request with one Bearer-token retry on 401/403.
+     * @param url Absolute manifest URL
+     * @param method HEAD or GET
+     * @param headers Request headers
+     * @param accept Accept header value (for rebuilding after token auth)
+     * @param repository Repository path for the token scope
+     * @param basicAuth Optional basic auth for the token request
+     * @returns Status, response headers, and possibly updated request headers
+     */
+    private async requestManifest(
+        url: string,
+        method: "HEAD" | "GET",
+        headers: Record<string, string>,
+        accept: string,
+        repository: string,
+        basicAuth: string | undefined,
+    ): Promise<{
+        statusCode: number;
+        headers: http.IncomingHttpHeaders;
+        headersOut: Record<string, string>;
+    }> {
+        let response = await this.httpsRequest(url, method, headers);
+        let headersOut = headers;
+
+        if (response.statusCode === 401 || response.statusCode === 403) {
+            const wwwAuth = response.headers["www-authenticate"];
+            const token = await this.fetchRegistryToken(wwwAuth, repository, basicAuth);
+            if (token) {
+                headersOut = {
+                    Accept: accept,
+                    Authorization: `Bearer ${token}`,
+                };
+                response = await this.httpsRequest(url, method, headersOut);
+            }
+        }
+
+        return {
+            statusCode: response.statusCode,
+            headers: response.headers,
+            headersOut,
+        };
     }
 
     /**
