@@ -721,7 +721,9 @@ export class ImageUpdateChecker {
         headers: http.IncomingHttpHeaders;
         headersOut: Record<string, string>;
     }> {
-        let response = await this.httpsRequest(url, method, headers);
+        // Digest comes from response headers; do not retain unused GET bodies.
+        const requestOpts = { collectBody: false };
+        let response = await this.httpsRequest(url, method, headers, requestOpts);
         let headersOut = headers;
 
         if (response.statusCode === 401 || response.statusCode === 403) {
@@ -732,7 +734,7 @@ export class ImageUpdateChecker {
                     Accept: accept,
                     Authorization: `Bearer ${token}`,
                 };
-                response = await this.httpsRequest(url, method, headersOut);
+                response = await this.httpsRequest(url, method, headersOut, requestOpts);
             }
         }
 
@@ -833,19 +835,34 @@ export class ImageUpdateChecker {
 
     /**
      * HTTP(S) request helper returning status, headers, and body text.
+     * Caps retained bodies and rejects on truncated/aborted responses so scans cannot hang.
      * @param url Absolute URL
      * @param method HTTP method
      * @param headers Request headers
+     * @param options collectBody (default true) and maxBodyBytes (default 64 KiB)
      * @returns Response parts
      */
     private httpsRequest(
         url: string,
         method: string,
         headers: Record<string, string>,
+        options: { collectBody?: boolean; maxBodyBytes?: number } = {},
     ): Promise<{ statusCode: number; headers: http.IncomingHttpHeaders; body: string }> {
+        const collectBody = options.collectBody !== false;
+        const maxBodyBytes = options.maxBodyBytes ?? 64 * 1024;
+
         return new Promise((resolve, reject) => {
             const parsed = new URL(url);
             const lib = parsed.protocol === "http:" ? http : https;
+            let settled = false;
+            const settle = (fn: () => void) => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                fn();
+            };
+
             const req = lib.request(
                 {
                     protocol: parsed.protocol,
@@ -857,21 +874,48 @@ export class ImageUpdateChecker {
                     timeout: 20_000,
                 },
                 (res) => {
-                    const chunks: Buffer[] = [];
-                    res.on("data", (c) => chunks.push(c));
-                    res.on("end", () => {
-                        resolve({
+                    const fail = (err: Error) => {
+                        req.destroy();
+                        settle(() => reject(err));
+                    };
+                    const done = (body: string) => {
+                        settle(() => resolve({
                             statusCode: res.statusCode ?? 0,
                             headers: res.headers,
-                            body: Buffer.concat(chunks).toString("utf-8"),
-                        });
+                            body,
+                        }));
+                    };
+
+                    res.on("aborted", () => fail(new Error("Response aborted")));
+                    res.on("error", (err) => fail(err instanceof Error ? err : new Error(String(err))));
+                    res.on("close", () => {
+                        if (!settled) {
+                            fail(new Error("Response closed before complete"));
+                        }
                     });
+
+                    if (!collectBody) {
+                        res.on("end", () => done(""));
+                        res.resume();
+                    } else {
+                        const chunks: Buffer[] = [];
+                        let size = 0;
+                        res.on("data", (c: Buffer) => {
+                            size += c.length;
+                            if (size > maxBodyBytes) {
+                                fail(new Error("Response body too large"));
+                                return;
+                            }
+                            chunks.push(c);
+                        });
+                        res.on("end", () => done(Buffer.concat(chunks).toString("utf-8")));
+                    }
                 },
             );
-            req.on("error", reject);
+            req.on("error", (err) => settle(() => reject(err)));
             req.on("timeout", () => {
                 req.destroy();
-                reject(new Error("Request timed out"));
+                settle(() => reject(new Error("Request timed out")));
             });
             req.end();
         });
