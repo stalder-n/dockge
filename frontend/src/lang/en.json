@@ -35,6 +35,7 @@
     "updateAvailable": "Update available",
     "stackUpdateAvailableServices": "Updates available for: {0}",
     "checkStackUpdates": "Check for updates",
+    "checkStackUpdatesTimeout": "Update check timed out. If this keeps happening on a remote agent, that host may need a newer Dockge version.",
     "stackUpdateCheckComplete": "Update check complete",
     "imageUpdateChecking": "Stack Image Updates",
     "imageUpdateCheckEnabled": "Automatically check for stack image updates",

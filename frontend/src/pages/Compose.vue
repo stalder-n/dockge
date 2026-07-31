@@ -292,6 +292,9 @@ services:
 `;
 const envDefault = "# VARIABLE=value #comment";
 
+/** Older agents lack checkStackUpdates and never invoke the callback. */
+const AGENT_CHECK_STACK_UPDATES_TIMEOUT_MS = 60000;
+
 let yamlErrorTimeout = null;
 
 let serviceStatusTimeout = null;
@@ -724,15 +727,53 @@ export default {
         },
 
         /**
+         * Wrap an agent callback; clears UI on timeout, still accepts a late response.
+         * @param {function} onResponse Callback for agent response
+         * @param {function} onTimeout Callback when the agent does not respond in time
+         * @param {object} options timeoutMs and acceptLate
+         * @returns {function} Wrapped callback for emitAgent
+         */
+        withAgentTimeout(onResponse, onTimeout, options = {}) {
+            const timeoutMs = options.timeoutMs ?? AGENT_CHECK_STACK_UPDATES_TIMEOUT_MS;
+            const acceptLate = options.acceptLate === true;
+            let settled = false;
+            let timedOut = false;
+            const timer = setTimeout(() => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                timedOut = true;
+                onTimeout();
+            }, timeoutMs);
+
+            return (res) => {
+                if (settled && !(acceptLate && timedOut)) {
+                    return;
+                }
+                settled = true;
+                timedOut = false;
+                clearTimeout(timer);
+                onResponse(res);
+            };
+        },
+
+        /**
          * Re-check digests for this stack without pulling
          * @returns {void}
          */
         checkStackUpdates() {
             this.checkingUpdates = true;
-            this.$root.emitAgent(this.endpoint, "checkStackUpdates", this.stack.name, (res) => {
+            this.$root.emitAgent(this.endpoint, "checkStackUpdates", this.stack.name, this.withAgentTimeout((res) => {
                 this.checkingUpdates = false;
                 this.$root.toastRes(res);
-            });
+            }, () => {
+                this.checkingUpdates = false;
+                this.$root.toastError("checkStackUpdatesTimeout");
+            }, {
+                timeoutMs: AGENT_CHECK_STACK_UPDATES_TIMEOUT_MS,
+                acceptLate: true,
+            }));
         },
 
         deleteDialog() {
