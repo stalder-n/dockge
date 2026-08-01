@@ -510,7 +510,9 @@ export class ImageUpdateChecker {
 
         let doc: unknown;
         try {
-            doc = yaml.parse(substituted);
+            // Compose supports YAML merge keys (`<<: *anchor`); without `merge: true`,
+            // `image` inherited via merge stays nested under `"<<"` and is skipped.
+            doc = yaml.parse(substituted, { merge: true });
         } catch (e) {
             log.warn("image-update", `YAML parse failed for ${stack.name}: ${e instanceof Error ? e.message : e}`);
             return [];
@@ -969,15 +971,21 @@ export class ImageUpdateChecker {
 
     /**
      * Call the Docker Engine HTTP API (unix socket or TCP from DOCKER_HOST).
+     * Rejects on truncated/aborted responses so bulk scans cannot hang with `checking` stuck.
      * @param apiPath Path beginning with /
+     * @param options maxBodyBytes (default 1 MiB), deadlineMs (default 30s)
      * @returns Response parts
      */
     private dockerEngineRequest(
         apiPath: string,
+        options: { maxBodyBytes?: number; deadlineMs?: number } = {},
     ): Promise<{ statusCode: number; headers: http.IncomingHttpHeaders; body: string }> {
+        const maxBodyBytes = options.maxBodyBytes ?? 1024 * 1024;
+        const deadlineMs = options.deadlineMs ?? 30_000;
+
         return new Promise((resolve, reject) => {
             const dockerHost = process.env.DOCKER_HOST || "unix:///var/run/docker.sock";
-            const options: http.RequestOptions = {
+            const requestOptions: http.RequestOptions = {
                 method: "GET",
                 path: apiPath,
                 headers: { Host: "localhost" },
@@ -985,31 +993,69 @@ export class ImageUpdateChecker {
             };
 
             if (dockerHost.startsWith("unix://") || dockerHost.startsWith("/")) {
-                options.socketPath = dockerHost.replace(/^unix:\/\//, "");
+                requestOptions.socketPath = dockerHost.replace(/^unix:\/\//, "");
             } else if (dockerHost.startsWith("tcp://")) {
                 const u = new URL(dockerHost.replace(/^tcp:\/\//, "http://"));
-                options.hostname = u.hostname;
-                options.port = u.port || "2375";
+                requestOptions.hostname = u.hostname;
+                requestOptions.port = u.port || "2375";
             } else {
-                options.socketPath = "/var/run/docker.sock";
+                requestOptions.socketPath = "/var/run/docker.sock";
             }
 
-            const req = http.request(options, (res) => {
+            let settled = false;
+            let deadline: NodeJS.Timeout | null = null;
+            const settle = (fn: () => void) => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                if (deadline) {
+                    clearTimeout(deadline);
+                    deadline = null;
+                }
+                fn();
+            };
+
+            const req = http.request(requestOptions, (res) => {
+                const fail = (err: Error) => {
+                    req.destroy();
+                    settle(() => reject(err));
+                };
                 const chunks: Buffer[] = [];
-                res.on("data", (c) => chunks.push(c));
+                let size = 0;
+
+                res.on("aborted", () => fail(new Error("Docker engine response aborted")));
+                res.on("error", (err) => fail(err instanceof Error ? err : new Error(String(err))));
+                res.on("close", () => {
+                    if (!settled) {
+                        fail(new Error("Docker engine response closed before complete"));
+                    }
+                });
+                res.on("data", (c: Buffer) => {
+                    size += c.length;
+                    if (size > maxBodyBytes) {
+                        fail(new Error("Docker engine response body too large"));
+                        return;
+                    }
+                    chunks.push(c);
+                });
                 res.on("end", () => {
-                    resolve({
+                    settle(() => resolve({
                         statusCode: res.statusCode ?? 0,
                         headers: res.headers,
                         body: Buffer.concat(chunks).toString("utf-8"),
-                    });
+                    }));
                 });
             });
-            req.on("error", reject);
+            req.on("error", (err) => settle(() => reject(err)));
             req.on("timeout", () => {
                 req.destroy();
-                reject(new Error("Docker engine request timed out"));
+                settle(() => reject(new Error("Docker engine request timed out")));
             });
+            deadline = setTimeout(() => {
+                req.destroy();
+                settle(() => reject(new Error("Docker engine request exceeded deadline")));
+            }, deadlineMs);
             req.end();
         });
     }
