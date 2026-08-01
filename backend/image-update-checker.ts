@@ -23,6 +23,9 @@ export const MAX_IMAGE_UPDATE_INTERVAL_HOURS = 168;
 /** Concurrent registry/distribution checks */
 const CHECK_CONCURRENCY = 4;
 
+/** Deadline for the local `docker image inspect` child process */
+const LOCAL_INSPECT_TIMEOUT_MS = 30_000;
+
 export type ImageUpdateServiceStatus = "up-to-date" | "update-available" | "unknown" | "error";
 
 export type StackUpdateCheckStatus = "ok" | "unknown" | "error" | "pending";
@@ -602,7 +605,12 @@ export class ImageUpdateChecker {
             const res = await childProcessAsync.spawn(
                 "docker",
                 [ "image", "inspect", reference, "--format", "{{json .RepoDigests}}" ],
-                { encoding: "utf-8" },
+                {
+                    encoding: "utf-8",
+                    // An unresponsive daemon would otherwise keep the child (and the scan) pending forever
+                    timeout: LOCAL_INSPECT_TIMEOUT_MS,
+                    killSignal: "SIGKILL",
+                },
             );
             if (!res.stdout) {
                 return [];
