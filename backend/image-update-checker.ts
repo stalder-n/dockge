@@ -836,30 +836,38 @@ export class ImageUpdateChecker {
     /**
      * HTTP(S) request helper returning status, headers, and body text.
      * Caps retained bodies and rejects on truncated/aborted responses so scans cannot hang.
+     * The 20s socket timeout only covers inactivity, so an absolute deadline bounds
+     * responses that keep trickling data forever.
      * @param url Absolute URL
      * @param method HTTP method
      * @param headers Request headers
-     * @param options collectBody (default true) and maxBodyBytes (default 64 KiB)
+     * @param options collectBody (default true), maxBodyBytes (default 64 KiB), deadlineMs (default 30s)
      * @returns Response parts
      */
     private httpsRequest(
         url: string,
         method: string,
         headers: Record<string, string>,
-        options: { collectBody?: boolean; maxBodyBytes?: number } = {},
+        options: { collectBody?: boolean; maxBodyBytes?: number; deadlineMs?: number } = {},
     ): Promise<{ statusCode: number; headers: http.IncomingHttpHeaders; body: string }> {
         const collectBody = options.collectBody !== false;
         const maxBodyBytes = options.maxBodyBytes ?? 64 * 1024;
+        const deadlineMs = options.deadlineMs ?? 30_000;
 
         return new Promise((resolve, reject) => {
             const parsed = new URL(url);
             const lib = parsed.protocol === "http:" ? http : https;
             let settled = false;
+            let deadline: NodeJS.Timeout | null = null;
             const settle = (fn: () => void) => {
                 if (settled) {
                     return;
                 }
                 settled = true;
+                if (deadline) {
+                    clearTimeout(deadline);
+                    deadline = null;
+                }
                 fn();
             };
 
@@ -895,8 +903,10 @@ export class ImageUpdateChecker {
                     });
 
                     if (!collectBody) {
-                        res.on("end", () => done(""));
-                        res.resume();
+                        // The digest lives in the response headers, so settle as soon as they
+                        // arrive and drop the body instead of waiting for `end`.
+                        done("");
+                        res.destroy();
                     } else {
                         const chunks: Buffer[] = [];
                         let size = 0;
@@ -917,6 +927,10 @@ export class ImageUpdateChecker {
                 req.destroy();
                 settle(() => reject(new Error("Request timed out")));
             });
+            deadline = setTimeout(() => {
+                req.destroy();
+                settle(() => reject(new Error("Request exceeded deadline")));
+            }, deadlineMs);
             req.end();
         });
     }
