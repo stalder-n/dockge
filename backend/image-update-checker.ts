@@ -200,6 +200,9 @@ export class ImageUpdateChecker {
 
         const enabled = await this.isEnabled();
         if (!enabled) {
+            // Checks that already passed the isEnabled() gate must not repopulate the cache
+            // after it is cleared, or their indicators would stick around with no timer left.
+            this.invalidateInFlightChecks();
             this.cache.clear();
             this.remoteDigestCache.clear();
             log.info("image-update", "Image update checking is disabled");
@@ -292,6 +295,15 @@ export class ImageUpdateChecker {
         const gen = (this.stackCheckGeneration.get(stackName) ?? 0) + 1;
         this.stackCheckGeneration.set(stackName, gen);
         return gen;
+    }
+
+    /**
+     * Bump every known stack generation so all outstanding checks discard their results.
+     */
+    private invalidateInFlightChecks() {
+        for (const [ name, gen ] of this.stackCheckGeneration) {
+            this.stackCheckGeneration.set(name, gen + 1);
+        }
     }
 
     /**
