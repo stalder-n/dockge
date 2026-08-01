@@ -472,6 +472,13 @@ export class ImageUpdateChecker {
             Object.assign(env, dotenv.parse(fs.readFileSync(globalEnvPath, "utf-8")));
         }
         Object.assign(env, dotenv.parse(stack.composeENV));
+        // Compose gives shell variables precedence over --env-file values, and the compose
+        // PTY inherits this process's environment, so it wins here too.
+        for (const [ key, value ] of Object.entries(process.env)) {
+            if (typeof value === "string") {
+                env[key] = value;
+            }
+        }
 
         let substituted: string;
         try {
