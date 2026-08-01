@@ -167,11 +167,16 @@ export class ImageUpdateChecker {
         // Initial scan shortly after boot so the UI is not empty
         this.initialTimer = setTimeout(async () => {
             this.initialTimer = null;
-            if (!(await this.isEnabled())) {
-                return;
+            try {
+                if (!(await this.isEnabled())) {
+                    return;
+                }
+                await this.checkAllStacks();
+                await server.sendStackList();
+            } catch (e) {
+                // A failing boot scan (e.g. the daemon is not up yet) must not reject unhandled
+                log.error("image-update", e);
             }
-            await this.checkAllStacks();
-            await server.sendStackList();
         }, 15_000);
     }
 
