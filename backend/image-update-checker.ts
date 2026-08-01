@@ -26,6 +26,110 @@ const CHECK_CONCURRENCY = 4;
 /** Deadline for the local `docker image inspect` child process */
 const LOCAL_INSPECT_TIMEOUT_MS = 30_000;
 
+/** Socket inactivity timeout for outbound HTTP(S) / Engine requests */
+const HTTP_SOCKET_INACTIVITY_MS = 20_000;
+
+/** Absolute wall-clock deadline for outbound HTTP(S) / Engine requests */
+const HTTP_REQUEST_DEADLINE_MS = 30_000;
+
+/** Cap on retained response bodies for digest / Engine JSON fetches */
+const HTTP_MAX_BODY_BYTES = 64 * 1024;
+
+type HttpResponseParts = {
+    statusCode: number;
+    headers: http.IncomingHttpHeaders;
+    body: string;
+};
+
+/**
+ * Run an HTTP request with settle-once semantics, body size cap, abort/close rejection,
+ * socket inactivity timeout, and an absolute deadline.
+ * @param createRequest Builds the ClientRequest; must call the given response callback
+ * @param options collectBody, maxBodyBytes, deadlineMs, errorLabel
+ * @returns Response parts
+ */
+function runBoundedHttpRequest(
+    createRequest: (onResponse: (res: http.IncomingMessage) => void) => http.ClientRequest,
+    options: {
+        collectBody?: boolean;
+        maxBodyBytes?: number;
+        deadlineMs?: number;
+        errorLabel?: string;
+    } = {},
+): Promise<HttpResponseParts> {
+    const collectBody = options.collectBody !== false;
+    const maxBodyBytes = options.maxBodyBytes ?? HTTP_MAX_BODY_BYTES;
+    const deadlineMs = options.deadlineMs ?? HTTP_REQUEST_DEADLINE_MS;
+    const errorLabel = options.errorLabel ?? "Request";
+
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        let deadline: NodeJS.Timeout | null = null;
+        const settle = (fn: () => void) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            if (deadline) {
+                clearTimeout(deadline);
+                deadline = null;
+            }
+            fn();
+        };
+
+        const req = createRequest((res) => {
+            const fail = (err: Error) => {
+                req.destroy();
+                settle(() => reject(err));
+            };
+            const done = (body: string) => {
+                settle(() => resolve({
+                    statusCode: res.statusCode ?? 0,
+                    headers: res.headers,
+                    body,
+                }));
+            };
+
+            res.on("aborted", () => fail(new Error(`${errorLabel} aborted`)));
+            res.on("error", (err) => fail(err instanceof Error ? err : new Error(String(err))));
+            res.on("close", () => {
+                if (!settled) {
+                    fail(new Error(`${errorLabel} closed before complete`));
+                }
+            });
+
+            if (!collectBody) {
+                // Digest lives in response headers; settle immediately and drop the body.
+                done("");
+                res.destroy();
+            } else {
+                const chunks: Buffer[] = [];
+                let size = 0;
+                res.on("data", (c: Buffer) => {
+                    size += c.length;
+                    if (size > maxBodyBytes) {
+                        fail(new Error(`${errorLabel} body too large`));
+                        return;
+                    }
+                    chunks.push(c);
+                });
+                res.on("end", () => done(Buffer.concat(chunks).toString("utf-8")));
+            }
+        });
+
+        req.on("error", (err) => settle(() => reject(err)));
+        req.on("timeout", () => {
+            req.destroy();
+            settle(() => reject(new Error(`${errorLabel} timed out`)));
+        });
+        deadline = setTimeout(() => {
+            req.destroy();
+            settle(() => reject(new Error(`${errorLabel} exceeded deadline`)));
+        }, deadlineMs);
+        req.end();
+    });
+}
+
 export type ImageUpdateServiceStatus = "up-to-date" | "update-available" | "unknown" | "error";
 
 export type StackUpdateCheckStatus = "ok" | "unknown" | "error" | "pending";
@@ -870,12 +974,12 @@ export class ImageUpdateChecker {
     /**
      * HTTP(S) request helper returning status, headers, and body text.
      * Caps retained bodies and rejects on truncated/aborted responses so scans cannot hang.
-     * The 20s socket timeout only covers inactivity, so an absolute deadline bounds
+     * The socket inactivity timeout only covers idle sockets, so an absolute deadline bounds
      * responses that keep trickling data forever.
      * @param url Absolute URL
      * @param method HTTP method
      * @param headers Request headers
-     * @param options collectBody (default true), maxBodyBytes (default 64 KiB), deadlineMs (default 30s)
+     * @param options collectBody (default true), maxBodyBytes, deadlineMs
      * @returns Response parts
      */
     private httpsRequest(
@@ -883,29 +987,11 @@ export class ImageUpdateChecker {
         method: string,
         headers: Record<string, string>,
         options: { collectBody?: boolean; maxBodyBytes?: number; deadlineMs?: number } = {},
-    ): Promise<{ statusCode: number; headers: http.IncomingHttpHeaders; body: string }> {
-        const collectBody = options.collectBody !== false;
-        const maxBodyBytes = options.maxBodyBytes ?? 64 * 1024;
-        const deadlineMs = options.deadlineMs ?? 30_000;
-
-        return new Promise((resolve, reject) => {
+    ): Promise<HttpResponseParts> {
+        return runBoundedHttpRequest((onResponse) => {
             const parsed = new URL(url);
             const lib = parsed.protocol === "http:" ? http : https;
-            let settled = false;
-            let deadline: NodeJS.Timeout | null = null;
-            const settle = (fn: () => void) => {
-                if (settled) {
-                    return;
-                }
-                settled = true;
-                if (deadline) {
-                    clearTimeout(deadline);
-                    deadline = null;
-                }
-                fn();
-            };
-
-            const req = lib.request(
+            return lib.request(
                 {
                     protocol: parsed.protocol,
                     hostname: parsed.hostname,
@@ -913,83 +999,36 @@ export class ImageUpdateChecker {
                     path: parsed.pathname + parsed.search,
                     method,
                     headers,
-                    timeout: 20_000,
+                    timeout: HTTP_SOCKET_INACTIVITY_MS,
                 },
-                (res) => {
-                    const fail = (err: Error) => {
-                        req.destroy();
-                        settle(() => reject(err));
-                    };
-                    const done = (body: string) => {
-                        settle(() => resolve({
-                            statusCode: res.statusCode ?? 0,
-                            headers: res.headers,
-                            body,
-                        }));
-                    };
-
-                    res.on("aborted", () => fail(new Error("Response aborted")));
-                    res.on("error", (err) => fail(err instanceof Error ? err : new Error(String(err))));
-                    res.on("close", () => {
-                        if (!settled) {
-                            fail(new Error("Response closed before complete"));
-                        }
-                    });
-
-                    if (!collectBody) {
-                        // The digest lives in the response headers, so settle as soon as they
-                        // arrive and drop the body instead of waiting for `end`.
-                        done("");
-                        res.destroy();
-                    } else {
-                        const chunks: Buffer[] = [];
-                        let size = 0;
-                        res.on("data", (c: Buffer) => {
-                            size += c.length;
-                            if (size > maxBodyBytes) {
-                                fail(new Error("Response body too large"));
-                                return;
-                            }
-                            chunks.push(c);
-                        });
-                        res.on("end", () => done(Buffer.concat(chunks).toString("utf-8")));
-                    }
-                },
+                onResponse,
             );
-            req.on("error", (err) => settle(() => reject(err)));
-            req.on("timeout", () => {
-                req.destroy();
-                settle(() => reject(new Error("Request timed out")));
-            });
-            deadline = setTimeout(() => {
-                req.destroy();
-                settle(() => reject(new Error("Request exceeded deadline")));
-            }, deadlineMs);
-            req.end();
+        }, {
+            collectBody: options.collectBody,
+            maxBodyBytes: options.maxBodyBytes,
+            deadlineMs: options.deadlineMs,
+            errorLabel: "Response",
         });
     }
 
     /**
      * Call the Docker Engine HTTP API (unix socket or TCP from DOCKER_HOST).
-     * Rejects on truncated/aborted responses so bulk scans cannot hang with `checking` stuck.
+     * Same hang/size/deadline hardening as {@link httpsRequest}.
      * @param apiPath Path beginning with /
-     * @param options maxBodyBytes (default 1 MiB), deadlineMs (default 30s)
+     * @param options maxBodyBytes, deadlineMs
      * @returns Response parts
      */
     private dockerEngineRequest(
         apiPath: string,
         options: { maxBodyBytes?: number; deadlineMs?: number } = {},
-    ): Promise<{ statusCode: number; headers: http.IncomingHttpHeaders; body: string }> {
-        const maxBodyBytes = options.maxBodyBytes ?? 1024 * 1024;
-        const deadlineMs = options.deadlineMs ?? 30_000;
-
-        return new Promise((resolve, reject) => {
+    ): Promise<HttpResponseParts> {
+        return runBoundedHttpRequest((onResponse) => {
             const dockerHost = process.env.DOCKER_HOST || "unix:///var/run/docker.sock";
             const requestOptions: http.RequestOptions = {
                 method: "GET",
                 path: apiPath,
                 headers: { Host: "localhost" },
-                timeout: 20_000,
+                timeout: HTTP_SOCKET_INACTIVITY_MS,
             };
 
             if (dockerHost.startsWith("unix://") || dockerHost.startsWith("/")) {
@@ -1002,61 +1041,11 @@ export class ImageUpdateChecker {
                 requestOptions.socketPath = "/var/run/docker.sock";
             }
 
-            let settled = false;
-            let deadline: NodeJS.Timeout | null = null;
-            const settle = (fn: () => void) => {
-                if (settled) {
-                    return;
-                }
-                settled = true;
-                if (deadline) {
-                    clearTimeout(deadline);
-                    deadline = null;
-                }
-                fn();
-            };
-
-            const req = http.request(requestOptions, (res) => {
-                const fail = (err: Error) => {
-                    req.destroy();
-                    settle(() => reject(err));
-                };
-                const chunks: Buffer[] = [];
-                let size = 0;
-
-                res.on("aborted", () => fail(new Error("Docker engine response aborted")));
-                res.on("error", (err) => fail(err instanceof Error ? err : new Error(String(err))));
-                res.on("close", () => {
-                    if (!settled) {
-                        fail(new Error("Docker engine response closed before complete"));
-                    }
-                });
-                res.on("data", (c: Buffer) => {
-                    size += c.length;
-                    if (size > maxBodyBytes) {
-                        fail(new Error("Docker engine response body too large"));
-                        return;
-                    }
-                    chunks.push(c);
-                });
-                res.on("end", () => {
-                    settle(() => resolve({
-                        statusCode: res.statusCode ?? 0,
-                        headers: res.headers,
-                        body: Buffer.concat(chunks).toString("utf-8"),
-                    }));
-                });
-            });
-            req.on("error", (err) => settle(() => reject(err)));
-            req.on("timeout", () => {
-                req.destroy();
-                settle(() => reject(new Error("Docker engine request timed out")));
-            });
-            deadline = setTimeout(() => {
-                req.destroy();
-                settle(() => reject(new Error("Docker engine request exceeded deadline")));
-            }, deadlineMs);
-            req.end();
+            return http.request(requestOptions, onResponse);
+        }, {
+            maxBodyBytes: options.maxBodyBytes,
+            deadlineMs: options.deadlineMs,
+            errorLabel: "Docker engine response",
         });
     }
 }
